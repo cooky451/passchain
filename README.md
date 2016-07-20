@@ -1,4 +1,4 @@
-### [Dynamic search function allows you to find every entry in seconds.](anker0)
+### [Dynamic search function allows you to find every entry in seconds.](#anker0)
 
 * **Why should I use a password manager?**
   * It allows your password security to be independent of the security flaws of the services you use. Every time you register for a service with the same password, you give up your security to them. Will they store the password properly? What happens if they get hacked, will the hackers be able to use your stolen password for other, more important services?
