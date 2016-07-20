@@ -2,6 +2,7 @@
 
 #include "utility/utility.hpp"
 
+#include <cctype>
 #include <cstdint>
 #include <algorithm>
 #include <string>
@@ -44,8 +45,24 @@ inline std::uint32_t levenshteinDistance(const std::string& s0, const std::strin
 
 inline std::uint32_t wordBasedEditDistance(const std::string& searchString, const std::string& dataString)
 {
-	auto searchWords = parseWords(searchString);
-	auto dataWords = parseWords(dataString);
+	const auto convertToLowerCase = [](std::vector<std::string> words)
+	{
+		for (auto& word : words)
+		{
+			for (auto& c : word)
+			{
+				if (std::isalpha(c))
+				{
+					c = std::tolower(c);
+				}
+			}
+		}
+
+		return words;
+	};
+
+	auto searchWords = convertToLowerCase(parseWords(searchString));
+	auto dataWords = convertToLowerCase(parseWords(dataString));
 
 	std::uint32_t distance = 0;
 
