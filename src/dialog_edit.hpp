@@ -77,6 +77,8 @@ void saveEditedData(HWND hwnd, EditDialogData* dialog)
 	snapshot.password = getWindowText(GetDlgItem(hwnd, DIALOG_EDITDATA_EDIT_PASSWORD));
 	snapshot.timestamp = std::time(nullptr);
 
+	auto str = toWideString(snapshot.password);
+
 	if (data->snapshots.size() == 0 || 
 		data->snapshots.back().username != snapshot.username || 
 		data->snapshots.back().password != snapshot.password)

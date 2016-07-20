@@ -26,12 +26,50 @@ enum class TimerId : std::uint32_t
 	CHECK_INACTIVE_TIME,
 };
 
+enum class HotkeyAction : std::uint32_t
+{
+	TYPE_TEXT,
+	COPY_TO_CLIPBOARD,
+};
+
 enum class ClipboardState : std::uint32_t
 {
 	CLEAN,
 	USERNAME_COPIED,
 	PASSWORD_COPIED,
 };
+
+void sendKeyInput(WORD scan, bool character, bool keyUp)
+{
+	INPUT input = {};
+
+	input.type = INPUT_KEYBOARD;
+	input.ki.wVk = character ? 0 : scan;
+	input.ki.wScan = character ? scan : 0;
+	input.ki.dwFlags = (character ? KEYEVENTF_UNICODE : 0) | (keyUp ? KEYEVENTF_KEYUP : 0);
+
+	SendInput(1, &input, sizeof(INPUT));
+}
+
+void writeString(HWND, const std::string& str)
+{
+	sendKeyInput(VK_CONTROL, false, true);
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	sendKeyInput('B', false, true);
+	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+	auto wstr = toWideString(str);
+
+	for (const auto& c : wstr)
+	{
+		sendKeyInput(c, true, false);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		sendKeyInput(c, true, true);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	SecureZeroMemory(&wstr[0], wstr.size() * sizeof wstr[0]);
+}
 
 class MainDialog
 {
@@ -44,10 +82,13 @@ class MainDialog
 	UINT _taskbarCreatedMessage;
 	ClipboardState _clipboardState = ClipboardState::CLEAN;
 	std::uint64_t _selection = INVALID_SELECTION;
-	bool _showHiddenEntries = false;
+	std::chrono::steady_clock::time_point _lastTypeTime = {};
+	HotkeyAction _hotkeyAction = HotkeyAction::TYPE_TEXT;
+	std::uint32_t _typeTimeout = 2000;
 	std::uint32_t _clipboardTimeUsername = 4000;
 	std::uint32_t _clipboardTimePassword = 2000;
 	std::uint32_t _timeoutTime = 20 * 60 * 1000;
+	bool _showHiddenEntries = false;
 
 public:
 	MainDialog(MainDialogCreateParams* params, HWND hwnd)
@@ -70,9 +111,12 @@ public:
 		PropertyNode node(nullptr, "");
 		node.setSaveOnDestruct(filepath);
 		node.parse(readFileBinaryAsString(filepath));
+		node.loadOrStore("hotkey_action", reinterpret_cast<std::uint32_t&>(_hotkeyAction));
+		node.loadOrStore("type_timeout_ms", _typeTimeout);
 		node.loadOrStore("clipboard_timeout_username_ms", _clipboardTimeUsername);
 		node.loadOrStore("clipboard_timeout_password_ms", _clipboardTimePassword);
 		node.loadOrStore("standby_timeout_inactivity_ms", _timeoutTime);
+		node.loadOrStore("show_hidden_entries", _showHiddenEntries);
 	}
 
 	LoginDatabase& database()
@@ -146,24 +190,48 @@ public:
 
 		if (data != nullptr)
 		{
-			switch (_clipboardState)
+			switch (_hotkeyAction)
 			{
 			default:
-			case ClipboardState::CLEAN:
+			case HotkeyAction::TYPE_TEXT:
 			{
-				copyUsernameToClipboard(*data);
-				_clipboardState = ClipboardState::USERNAME_COPIED;
-				KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
-				SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimeUsername, nullptr);
-			}	break;
-			case ClipboardState::USERNAME_COPIED:
-			case ClipboardState::PASSWORD_COPIED:
-			{
-				copyPasswordToClipboard(*data);
-				_clipboardState = ClipboardState::PASSWORD_COPIED;
+				auto guard = database().transformGuard(*data);
 
-				KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
-				SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimePassword, nullptr);
+				if (_lastTypeTime.time_since_epoch().count() != 0 && 
+					std::chrono::duration_cast<std::chrono::milliseconds>
+					(std::chrono::steady_clock::now() - _lastTypeTime).count() < _typeTimeout)
+				{
+					writeString(GetForegroundWindow(), data->snapshots.back().password);
+					_lastTypeTime = {};
+				}
+				else
+				{
+					writeString(GetForegroundWindow(), data->snapshots.back().username);
+					_lastTypeTime = std::chrono::steady_clock::now();
+				}
+			}	break;
+
+			case HotkeyAction::COPY_TO_CLIPBOARD:
+			{
+				switch (_clipboardState)
+				{
+				default:
+				case ClipboardState::CLEAN:
+				{
+					copyUsernameToClipboard(*data);
+					_clipboardState = ClipboardState::USERNAME_COPIED;
+					KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
+					SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimeUsername, nullptr);
+				}	break;
+				case ClipboardState::USERNAME_COPIED:
+				case ClipboardState::PASSWORD_COPIED:
+				{
+					copyPasswordToClipboard(*data);
+					_clipboardState = ClipboardState::PASSWORD_COPIED;
+					KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
+					SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimePassword, nullptr);
+				}	break;
+				}
 			}	break;
 			}
 		}
@@ -516,13 +584,7 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 		case MENU_MAINDIALOG_ABOUT_INFO:
 		{
-			MessageBoxW(nullptr, L"Select an item by double-clicking it or pressing the "
-				"select button, which will select the top most item.\r\n"
-				"Press ctrl+b at any time to insert the corresponding username "
-				"into clipboard for 4 seconds, after which the clipboard will be cleared.\r\n"
-				"If you press ctrl+b again inside the 4 second time window, the corresponding "
-				"password will be copied into clipboard for 2 seconds, after which the clipboard will be cleared.", 
-				L"Help", MB_OK);
+			MessageBoxW(nullptr, L"https://github.com/cooky451/passchain", L"Help", MB_OK);
 		}	return true;
 
 		case DIALOG_MAIN_EDIT_SEARCH:

@@ -29,12 +29,12 @@ std::string toUtf8(const std::wstring& sourceString)
 
 std::wstring toWideString(const char* sourceString, std::size_t sourceStringSize)
 {
-	auto destStringSize = MultiByteToWideChar(0, MB_PRECOMPOSED, sourceString, 
+	auto destStringSize = MultiByteToWideChar(CP_UTF8, 0, sourceString,
 		static_cast<int>(sourceStringSize), nullptr, 0);
 
-	std::wstring destString(destStringSize, wchar_t());
+	std::wstring destString(destStringSize, destStringSize);
 
-	MultiByteToWideChar(0, MB_PRECOMPOSED, sourceString, 
+	MultiByteToWideChar(CP_UTF8, 0, sourceString,
 		static_cast<int>(sourceStringSize), &destString[0], destStringSize);
 
 	return destString;
@@ -49,4 +49,3 @@ std::wstring toWideString(const std::string& sourceString)
 {
 	return toWideString(sourceString.c_str(), sourceString.size());
 }
-

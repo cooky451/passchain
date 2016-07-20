@@ -46,7 +46,7 @@ INT_PTR CALLBACK dialogProcPassword(HWND hwnd, UINT message, WPARAM wparam, LPAR
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, lparam);
 		params = reinterpret_cast<PasswordDialogCreateParams*>(lparam);
 		params->remakeNotifyIcon(hwnd);
-		SetDlgItemText(hwnd, DIALOG_PASSWORD_EDIT_FILENAME, toWideString(*params->filename).c_str());
+		SetDlgItemTextW(hwnd, DIALOG_PASSWORD_EDIT_FILENAME, toWideString(*params->filename).c_str());
 
 		if (params->standby)
 		{
