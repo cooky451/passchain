@@ -5,6 +5,9 @@
   * It allows you to use strong, unique passwords for everything. And you don't need to remember them! That website that forced you to use two instead of one special character and now you can't remember anymore how you modified your default password for them? A thing of the past!
   * You also don't have to remember usernames anymore. Did you have to log in with your nick name or with your E-Mail address for this service? It's all stored in your password manager.
 
+* **How does the select system work?**
+  * You can select an item from the listbox by either double clicking it, or using the select button (press enter), which will select the topmost item from the list. Once selected, if you press ctrl+b, the username of the selected item will be automatically typed by passchain. If you press ctrl+b within the next two seconds again, the password will be automatically typed. You can also set this behavior to copy the username/password to your clipboard instead, although using the auto-typer is recommended.
+
 * **What happens if I need an older password?**
   * Passchain stores a complete history of all usernames and passwords, so looking up old ones is no problem.
 
