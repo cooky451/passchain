@@ -332,9 +332,9 @@ public:
 
 inline std::string getCurrentModuleFileName()
 {
-	std::wstring buffer(0x1000, wchar_t());
-	auto size = GetModuleFileNameW(nullptr, &buffer[0], static_cast<DWORD>(buffer.size()));
-	buffer.resize(size);
+	const DWORD bufferSize = 0x200;
+	wchar_t buffer[bufferSize];
+	auto size = GetModuleFileNameW(nullptr, &buffer[0], bufferSize);
 	return toUtf8(buffer);
 }
 

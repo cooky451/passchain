@@ -9,16 +9,32 @@
 #include <string>
 #include <vector>
 
-std::vector<std::string> getArgs(PWSTR cmdline)
+static std::string getFullyQualifiedPathName(const std::string& filename)
 {
-	int argc;
-	auto argv = CommandLineToArgvW(cmdline, &argc);
+	const DWORD bufferSize = 0x200;
+	wchar_t buffer[bufferSize];
+	GetFullPathNameW(toWideString(filename).c_str(), bufferSize, buffer, nullptr);
+	return toUtf8(buffer);
+}
 
-	std::vector<std::string> args;
+static std::vector<std::string> getArgs(PWSTR cmdline)
+{
+	// CommandLineToArgvW() sets args[0] to GetModuleFileName 
+	// if the app is being called without parameters, 
+	// but not if the app is being called with parameters.
+	// So this is the workaround to make it consistent.
 
-	for (int i = 0; i < argc; ++i)
+	std::vector<std::string> args{ getCurrentModuleFileName() };
+
+	if (cmdline[0] != wchar_t{ 0 })
 	{
-		args.push_back(toUtf8(argv[i]));
+		int argc;
+		auto argv = CommandLineToArgvW(cmdline, &argc);
+
+		for (int i = 0; i < argc; ++i)
+		{
+			args.push_back(toUtf8(argv[i]));
+		}
 	}
 
 	return args;
@@ -29,13 +45,9 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE /* hprevinstance */, PWSTR cm
 	//AllocConsole();
 	//freopen("CONOUT$", "w", stdout);
 
-	// CommandLineToArgvW() is not usable because it
-	// sets args[0] to GetModuleFileName if the app
-	// is being called without parameters, but not
-	// if the app is being called with parameters.
-	auto args = parseWords(toUtf8(cmdline));
+	auto args = getArgs(cmdline);
 
-	auto standby = args.size() > 1 && args[1] == "standby";
+	auto standby = args.size() > 2 && args[2] == "standby";
 
 	const auto instanceString = L"XKXjdwnFYYL2eVdB";
 	auto singleInstanceEvent = HandlePtr(OpenEventW(EVENT_ALL_ACCESS, false, instanceString));
@@ -60,7 +72,7 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE /* hprevinstance */, PWSTR cm
 
 	std::unique_ptr<LoginDatabase> database;
 	std::string password;
-	std::string filename = args.size() > 0 ? args[0] : "passchain.dat";
+	std::string filename = getFullyQualifiedPathName(args.size() > 1 ? args[1] : "passchain.dat");
 
 	while (database == nullptr)
 	{
@@ -120,8 +132,7 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE /* hprevinstance */, PWSTR cm
 
 	if (timeoutQuit)
 	{
-		auto moduleName = getCurrentModuleFileName();
-		auto callString = formatString("%s %s standby", moduleName.c_str(), filename.c_str());
+		auto callString = formatString("%s %s standby", args[0].c_str(), filename.c_str());
 
 		STARTUPINFOA startupInfo = { sizeof startupInfo };
 		PROCESS_INFORMATION processInformation;
