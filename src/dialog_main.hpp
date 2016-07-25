@@ -11,7 +11,7 @@
 #include "dialog_password.hpp"
 #include "dialog_showdatabase.hpp"
 #include "dialog_mergetext.hpp"
-#include "dialog_autostart.hpp"
+#include "dialog_settings.hpp"
 
 struct MainDialogCreateParams
 {
@@ -26,10 +26,10 @@ enum class TimerId : std::uint32_t
 	CHECK_INACTIVE_TIME,
 };
 
-enum class HotkeyAction : std::uint32_t
+enum class HotkeyId : std::uint32_t
 {
-	TYPE_TEXT,
-	COPY_TO_CLIPBOARD,
+	CLIPBOARD,
+	AUTOTYPER,
 };
 
 enum class ClipboardState : std::uint32_t
@@ -76,19 +76,19 @@ class MainDialog
 	static constexpr std::uint64_t INVALID_SELECTION = 0;
 
 	std::unique_ptr<NotifyIcon> _notifyIcon;
+
 	LoginDatabase* _database;
 	std::string* _storeFilename;
 	bool* _timeoutQuit;
+
 	UINT _taskbarCreatedMessage;
-	ClipboardState _clipboardState = ClipboardState::CLEAN;
+
 	std::uint64_t _selection = INVALID_SELECTION;
+	ClipboardState _clipboardState = ClipboardState::CLEAN;
 	std::chrono::steady_clock::time_point _lastTypeTime = {};
-	HotkeyAction _hotkeyAction = HotkeyAction::TYPE_TEXT;
-	std::uint32_t _typeTimeout = 2000;
-	std::uint32_t _clipboardTimeUsername = 4000;
-	std::uint32_t _clipboardTimePassword = 2000;
-	std::uint32_t _timeoutTime = 20 * 60 * 1000;
-	bool _showHiddenEntries = false;
+
+	ProgramSettings _settings;
+	std::string _configFile;
 
 public:
 	MainDialog(MainDialogCreateParams* params, HWND hwnd)
@@ -102,21 +102,43 @@ public:
 
 		char path[MAX_PATH];
 		SHGetSpecialFolderPathA(nullptr, path, CSIDL_APPDATA, true);
-		auto filepath = std::string(path) + "\\passchain";
+		_configFile = std::string(path) + "\\passchain";
 
-		CreateDirectoryA(filepath.c_str(), nullptr);
+		CreateDirectoryA(_configFile.c_str(), nullptr);
 
-		filepath += "\\passchain.cfg";
+		_configFile += "\\passchain.cfg";
+
+		std::string charbuf0(1, _settings.clipboardHotkeySettings.character);
+		std::string charbuf1(1, _settings.autotyperHotkeySettings.character);
 
 		PropertyNode node(nullptr, "");
-		node.setSaveOnDestruct(filepath);
-		node.parse(readFileBinaryAsString(filepath));
-		node.loadOrStore("hotkey_action", reinterpret_cast<std::uint32_t&>(_hotkeyAction));
-		node.loadOrStore("type_timeout_ms", _typeTimeout);
-		node.loadOrStore("clipboard_timeout_username_ms", _clipboardTimeUsername);
-		node.loadOrStore("clipboard_timeout_password_ms", _clipboardTimePassword);
-		node.loadOrStore("standby_timeout_inactivity_ms", _timeoutTime);
-		node.loadOrStore("show_hidden_entries", _showHiddenEntries);
+		node.parse(readFileBinaryAsString(_configFile));
+		node.loadOrStore("timeout.clipboard.username", _settings.clipboardUsernameTimeout);
+		node.loadOrStore("timeout.clipboard.password", _settings.clipboardPasswordTimeout);
+		node.loadOrStore("timeout.autotyper", _settings.autotyperTimeout);
+		node.loadOrStore("timeout.idle", _settings.idleTimeout);
+		node.loadOrStore("hotkey.clipboard_char", charbuf0);
+		node.loadOrStore("hotkey.clipboard_ctrl", _settings.clipboardHotkeySettings.control);
+		node.loadOrStore("hotkey.clipboard_shift", _settings.clipboardHotkeySettings.shift);
+		node.loadOrStore("hotkey.clipboard_alt", _settings.clipboardHotkeySettings.alt);
+		node.loadOrStore("hotkey.autotyper_char", charbuf1);
+		node.loadOrStore("hotkey.autotyper_ctrl", _settings.autotyperHotkeySettings.control);
+		node.loadOrStore("hotkey.autotyper_shift", _settings.autotyperHotkeySettings.shift);
+		node.loadOrStore("hotkey.autotyper_alt", _settings.autotyperHotkeySettings.alt);
+		node.loadOrStore("show_hidden_entries", _settings.showHiddenEntries);
+
+		if (charbuf0.size() > 1)
+		{
+			_settings.clipboardHotkeySettings.character = charbuf0[0];
+		}
+		if (charbuf1.size() > 1)
+		{
+			_settings.autotyperHotkeySettings.character = charbuf1[0];
+		}
+
+		_settings.autostartSetting = getAutostartSetting(makeAutostartKey());
+
+		registerHotkeys(hwnd);
 	}
 
 	LoginDatabase& database()
@@ -124,24 +146,24 @@ public:
 		return *_database;
 	}
 
-	std::string* storeFilename()
+	std::string& storeFilename()
 	{
-		return _storeFilename;
+		return *_storeFilename;
 	}
 
-	std::uint32_t timeoutTime() const
+	ProgramSettings& programSettings()
 	{
-		return _timeoutTime;
+		return _settings;
 	}
 
 	void setTimeoutQuit(bool value)
 	{
 		*_timeoutQuit = value;
 	}
-	
-	void swapShowHiddenEntries()
+
+	UINT taskbarCreatedMessage() const
 	{
-		_showHiddenEntries = !_showHiddenEntries;
+		return _taskbarCreatedMessage;
 	}
 
 	void writeDatabaseToFile()
@@ -151,15 +173,53 @@ public:
 		std::fwrite(buf.data(), 1, buf.size(), file.get());
 	}
 
-	UINT taskbarCreatedMessage() const
-	{
-		return _taskbarCreatedMessage;
-	}
-
 	void remakeNotifyIcon(HWND hwnd)
 	{
 		_notifyIcon = nullptr; // We need to delete it first.
 		_notifyIcon = std::make_unique<NotifyIcon>(hwnd, WM_TRAYNOTIFY, MAKEINTRESOURCEW(ICON_DEFAULT));
+	}
+
+	void registerHotkeys(HWND hwnd)
+	{
+		const auto mod0 =
+			(_settings.clipboardHotkeySettings.control ? MOD_CONTROL : 0) |
+			(_settings.clipboardHotkeySettings.shift ? MOD_SHIFT : 0) |
+			(_settings.clipboardHotkeySettings.alt ? MOD_ALT : 0);
+
+		const auto mod1 =
+			(_settings.autotyperHotkeySettings.control ? MOD_CONTROL : 0) |
+			(_settings.autotyperHotkeySettings.shift ? MOD_SHIFT : 0) |
+			(_settings.autotyperHotkeySettings.alt ? MOD_ALT : 0);
+
+		UnregisterHotKey(hwnd, static_cast<std::uint32_t>(HotkeyId::CLIPBOARD));
+		RegisterHotKey(hwnd, static_cast<std::uint32_t>(HotkeyId::CLIPBOARD),
+			mod0, _settings.clipboardHotkeySettings.character);
+
+		UnregisterHotKey(hwnd, static_cast<std::uint32_t>(HotkeyId::AUTOTYPER));
+		RegisterHotKey(hwnd, static_cast<std::uint32_t>(HotkeyId::AUTOTYPER),
+			mod1, _settings.autotyperHotkeySettings.character);
+	}
+
+	void storeConfigFile()
+	{
+		std::string charbuf0(1, _settings.clipboardHotkeySettings.character);
+		std::string charbuf1(1, _settings.autotyperHotkeySettings.character);
+
+		PropertyNode node(nullptr, "");
+		node.setSaveOnDestruct(_configFile);
+		node.storeValue("timeout.clipboard.username", _settings.clipboardUsernameTimeout);
+		node.storeValue("timeout.clipboard.password", _settings.clipboardPasswordTimeout);
+		node.storeValue("timeout.autotyper", _settings.autotyperTimeout);
+		node.storeValue("timeout.idle", _settings.idleTimeout);
+		node.storeValue("hotkey.clipboard_char", charbuf0);
+		node.storeValue("hotkey.clipboard_ctrl", _settings.clipboardHotkeySettings.control);
+		node.storeValue("hotkey.clipboard_shift", _settings.clipboardHotkeySettings.shift);
+		node.storeValue("hotkey.clipboard_alt", _settings.clipboardHotkeySettings.alt);
+		node.storeValue("hotkey.autotyper_char", charbuf1);
+		node.storeValue("hotkey.autotyper_ctrl", _settings.autotyperHotkeySettings.control);
+		node.storeValue("hotkey.autotyper_shift", _settings.autotyperHotkeySettings.shift);
+		node.storeValue("hotkey.autotyper_alt", _settings.autotyperHotkeySettings.alt);
+		node.storeValue("show_hidden_entries", _settings.showHiddenEntries);
 	}
 
 	void updateSelection(int index)
@@ -172,67 +232,61 @@ public:
 		}
 	}
 
-	void copyUsernameToClipboard(LoginData& data)
-	{
-		auto guard = database().transformGuard(data);
-		copyToClipboard(data.snapshots.back().username);
-	}
-	
-	void copyPasswordToClipboard(LoginData& data)
-	{
-		auto guard = database().transformGuard(data);
-		copyToClipboard(data.snapshots.back().password);
-	}
-
-	void hotkeyPressed(HWND hwnd)
+	void clipboardHotkeyPressed(HWND hwnd)
 	{
 		auto data = database().findEntry(_selection);
 
 		if (data != nullptr)
 		{
-			switch (_hotkeyAction)
+			auto guard = database().transformGuard(*data);
+
+			switch (_clipboardState)
 			{
 			default:
-			case HotkeyAction::TYPE_TEXT:
+			case ClipboardState::CLEAN:
 			{
-				auto guard = database().transformGuard(*data);
-
-				if (_lastTypeTime.time_since_epoch().count() != 0 && 
-					std::chrono::duration_cast<std::chrono::milliseconds>
-					(std::chrono::steady_clock::now() - _lastTypeTime).count() < _typeTimeout)
-				{
-					writeString(GetForegroundWindow(), data->snapshots.back().password);
-					_lastTypeTime = {};
-				}
-				else
-				{
-					writeString(GetForegroundWindow(), data->snapshots.back().username);
-					_lastTypeTime = std::chrono::steady_clock::now();
-				}
+				copyToClipboard(data->snapshots.back().username);
+				_clipboardState = ClipboardState::USERNAME_COPIED;
+				KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
+				SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), 
+					_settings.clipboardUsernameTimeout, nullptr);
 			}	break;
-
-			case HotkeyAction::COPY_TO_CLIPBOARD:
+			case ClipboardState::USERNAME_COPIED:
+			case ClipboardState::PASSWORD_COPIED:
 			{
-				switch (_clipboardState)
-				{
-				default:
-				case ClipboardState::CLEAN:
-				{
-					copyUsernameToClipboard(*data);
-					_clipboardState = ClipboardState::USERNAME_COPIED;
-					KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
-					SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimeUsername, nullptr);
-				}	break;
-				case ClipboardState::USERNAME_COPIED:
-				case ClipboardState::PASSWORD_COPIED:
-				{
-					copyPasswordToClipboard(*data);
-					_clipboardState = ClipboardState::PASSWORD_COPIED;
-					KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
-					SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), _clipboardTimePassword, nullptr);
-				}	break;
-				}
+				copyToClipboard(data->snapshots.back().password);
+				_clipboardState = ClipboardState::PASSWORD_COPIED;
+				KillTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD));
+				SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CLEAR_CLIPBOARD), 
+					_settings.clipboardUsernameTimeout, nullptr);
 			}	break;
+			}
+		}
+		else
+		{
+			showMessageBox("Warning", "Unable to find selected database entry.");
+		}
+	}
+
+	void autotyperHotkeyPressed(HWND)
+	{
+		auto data = database().findEntry(_selection);
+
+		if (data != nullptr)
+		{
+			auto guard = database().transformGuard(*data);
+
+			if (_lastTypeTime.time_since_epoch().count() != 0 &&
+				std::chrono::duration_cast<std::chrono::milliseconds>
+				(std::chrono::steady_clock::now() - _lastTypeTime).count() < _settings.autotyperTimeout)
+			{
+				writeString(GetForegroundWindow(), data->snapshots.back().password);
+				_lastTypeTime = {};
+			}
+			else
+			{
+				writeString(GetForegroundWindow(), data->snapshots.back().username);
+				_lastTypeTime = std::chrono::steady_clock::now();
 			}
 		}
 		else
@@ -292,7 +346,7 @@ public:
 
 			if (data->hide)
 			{
-				if (!_showHiddenEntries)
+				if (!_settings.showHiddenEntries)
 				{
 					continue;
 				}
@@ -375,14 +429,31 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LPARAM>(dialog));
 
 		dialog->updateSearchStringAndListbox(hwnd);
-
-		RegisterHotKey(hwnd, 0, MOD_CONTROL, 'B');
 	}	return true;
 
 	case WM_CHANGES_SAVED:
 	{
 		dialog->writeDatabaseToFile();
 		dialog->updateSearchStringAndListbox(hwnd);
+	}	return true;
+
+	case WM_SETTINGS_APPLIED:
+	{
+		dialog->registerHotkeys(hwnd);
+		dialog->storeConfigFile();
+
+		if (dialog->programSettings().autostartSetting == AutostartSetting::DISABLE)
+		{
+			if (RegDeleteValueW(makeAutostartKey(), L"passchain") != ERROR_SUCCESS)
+			{
+				showMessageBox("Error", "Unable to delete registry value.");
+			}
+		}
+		else
+		{
+			setAutostart(makeAutostartKey(), dialog->storeFilename(),
+				dialog->programSettings().autostartSetting == AutostartSetting::START_IN_STANDBY);
+		}
 	}	return true;
 
 	case WM_SYSCOMMAND:
@@ -401,9 +472,14 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 	case WM_HOTKEY:
 	{
-		if (wparam == 0)
+		if (static_cast<HotkeyId>(wparam) == HotkeyId::CLIPBOARD)
 		{
-			dialog->hotkeyPressed(hwnd);
+			dialog->clipboardHotkeyPressed(hwnd);
+			return true;
+		}
+		else if (static_cast<HotkeyId>(wparam) == HotkeyId::AUTOTYPER)
+		{
+			dialog->autotyperHotkeyPressed(hwnd);
 			return true;
 		}
 	}	break;
@@ -449,8 +525,9 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 			{
 				// Don't use GetTickCount64() here, since there's no 64-bit
 				// GetLastInputInfo(), we rely on both counters to overflow.
-				if (dialog->timeoutTime() > 0 &&
-					dialog->timeoutTime() < (static_cast<std::int64_t>(GetTickCount()) -
+				if (dialog->programSettings().idleTimeout > 0 &&
+					dialog->programSettings().idleTimeout < 
+					(static_cast<std::int64_t>(GetTickCount()) -
 						static_cast<std::int64_t>(lastInputInfo.dwTime)))
 				{
 					dialog->setTimeoutQuit(true);
@@ -558,15 +635,15 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 			PostMessageW(hwnd, WM_CLOSE, 0, 0);
 		}	return true;
 
-		case MENU_MAINDIALOG_TOOLS_CONFIGURE_AUTOSTART:
+		case MENU_MAINDIALOG_TOOLS_SETTINGS:
 		{
-			CreateDialogParamW(nullptr, MAKEINTRESOURCEW(DIALOG_AUTOSTART), hwnd,
-				dialogProcAutostart, reinterpret_cast<LPARAM>(dialog->storeFilename()));
+			CreateDialogParamW(nullptr, MAKEINTRESOURCEW(DIALOG_SETTINGS), hwnd,
+				dialogProcSettings, reinterpret_cast<LPARAM>(&dialog->programSettings()));
 		}	return true;
 
 		case MENU_MAINDIALOG_TOOLS_SHOW_HIDDEN_ENTRIES:
 		{
-			dialog->swapShowHiddenEntries();
+			dialog->programSettings().showHiddenEntries = !dialog->programSettings().showHiddenEntries;
 			dialog->updateListbox(hwnd);
 		}	return true;
 

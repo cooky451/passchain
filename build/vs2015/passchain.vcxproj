@@ -135,7 +135,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\dialog_mergetext.hpp" />
-    <ClInclude Include="..\..\src\dialog_autostart.hpp" />
+    <ClInclude Include="..\..\src\dialog_settings.hpp" />
     <ClInclude Include="..\..\src\memory_reader.hpp" />
     <ClInclude Include="..\..\src\dialog_edit.hpp" />
     <ClInclude Include="..\..\src\dialog_history.hpp" />

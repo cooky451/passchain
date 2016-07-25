@@ -13,7 +13,7 @@ struct EditDialogData
 	std::uint64_t uniqueId;
 };
 
-void updatePasswordStrength(HWND hwnd, const PasswordGeneratorDesc& generatorDesc)
+inline void updatePasswordStrength(HWND hwnd, const PasswordGeneratorDesc& generatorDesc)
 {
 	auto strength = calculateBitStrength(generatorDesc);
 
@@ -21,21 +21,21 @@ void updatePasswordStrength(HWND hwnd, const PasswordGeneratorDesc& generatorDes
 		static_cast<UINT>(std::round(strength)), false);
 }
 
-PasswordGeneratorDesc makeGeneratorDesc(HWND hwnd)
+inline PasswordGeneratorDesc makeGeneratorDesc(HWND hwnd)
 {
 	PasswordGeneratorDesc generatorDesc;
 
 	generatorDesc.genLetters = false !=
-		SendMessage(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_LETTERS), BM_GETCHECK, 0, 0);
+		SendMessageW(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_LETTERS), BM_GETCHECK, 0, 0);
 
 	generatorDesc.genNumbers = false !=
-		SendMessage(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_NUMBERS), BM_GETCHECK, 0, 0);
+		SendMessageW(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_NUMBERS), BM_GETCHECK, 0, 0);
 
 	generatorDesc.genSpecial = false !=
-		SendMessage(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_SPECIAL), BM_GETCHECK, 0, 0);
+		SendMessageW(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_SPECIAL), BM_GETCHECK, 0, 0);
 
 	generatorDesc.genExtra = false !=
-		SendMessage(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_EXTRA), BM_GETCHECK, 0, 0);
+		SendMessageW(GetDlgItem(hwnd, DIALOG_EDITDATA_CHECKBOX_EXTRA), BM_GETCHECK, 0, 0);
 
 	auto n = GetDlgItemInt(hwnd, DIALOG_EDITDATA_EDIT_PWLENGTH, nullptr, false);
 	generatorDesc.passwordLength = static_cast<std::uint16_t>(std::min(0xFFFFu, std::max(1u, n)));
@@ -44,7 +44,7 @@ PasswordGeneratorDesc makeGeneratorDesc(HWND hwnd)
 	return generatorDesc;
 }
 
-void saveEditedData(HWND hwnd, EditDialogData* dialog)
+inline void saveEditedData(HWND hwnd, EditDialogData* dialog)
 {
 	auto data = dialog->database->findEntry(dialog->uniqueId);
 	
@@ -89,8 +89,6 @@ void saveEditedData(HWND hwnd, EditDialogData* dialog)
 
 INT_PTR CALLBACK dialogProcEdit(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
-	//static bool ctrl_pressed = false;
-
 	auto parent = GetParent(hwnd);
 	auto dialog = reinterpret_cast<EditDialogData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 

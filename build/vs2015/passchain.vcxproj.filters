@@ -41,7 +41,7 @@
     <ClInclude Include="..\..\src\dialog_mergetext.hpp">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\dialog_autostart.hpp">
+    <ClInclude Include="..\..\src\dialog_settings.hpp">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>
