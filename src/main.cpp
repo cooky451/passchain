@@ -103,6 +103,7 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE /* hprevinstance */, PWSTR cm
 		catch (std::exception& e)
 		{
 			database = nullptr;
+			standby = false;
 			showMessageBox("Error", e.what());
 		}
 	}
