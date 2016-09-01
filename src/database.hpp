@@ -341,7 +341,7 @@ public:
 		, _randomGenerator(nullptr, 0)
 	{
 		auto s0 = std::time(nullptr);
-		auto s1 = std::chrono::high_resolution_clock::now();
+		auto s1 = std::chrono::steady_clock::now();
 		auto s2 = std::random_device()();
 		auto s3 = std::random_device()();
 

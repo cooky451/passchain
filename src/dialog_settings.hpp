@@ -137,8 +137,8 @@ inline AutostartSetting getAutostartSetting(HKEY hkey)
 {
 	if (hkey != nullptr)
 	{
-		wchar_t buffer[0x200] = {};
-		DWORD bufsize = static_cast<DWORD>(sizeof buffer);
+		wchar_t buffer[0x202] = {};
+		DWORD bufsize = static_cast<DWORD>(sizeof buffer - 2);
 		DWORD type = REG_SZ;
 		auto ret = RegQueryValueExW(hkey, L"passchain", 0, &type, 
 			reinterpret_cast<BYTE*>(&buffer[0]), &bufsize);

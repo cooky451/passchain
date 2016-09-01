@@ -2,6 +2,8 @@
 #define WM_TRAYNOTIFY (WM_APP + 1)
 #define WM_CHANGES_SAVED (WM_APP + 2)
 #define WM_SETTINGS_APPLIED (WM_APP + 3)
+#define WM_CLEAR_CLIPBOARD (WM_APP + 4)
+#define WM_CHECK_INACTIVE_TIME (WM_APP + 5)
 
 // The resource compiler doesn't understand __LINE__ or __COUNTER__.
 // It also can't parse spaces in definitions.

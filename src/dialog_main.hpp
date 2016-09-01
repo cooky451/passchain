@@ -98,7 +98,6 @@ public:
 		, _taskbarCreatedMessage(RegisterWindowMessageW(L"TaskbarCreated"))
 	{
 		remakeNotifyIcon(hwnd);
-		SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CHECK_INACTIVE_TIME), 1000, nullptr);
 
 		char path[MAX_PATH];
 		SHGetSpecialFolderPathA(nullptr, path, CSIDL_APPDATA, true);
@@ -429,6 +428,8 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LPARAM>(dialog));
 
 		dialog->updateSearchStringAndListbox(hwnd);
+
+		SetTimer(hwnd, static_cast<UINT_PTR>(TimerId::CHECK_INACTIVE_TIME), 1000, nullptr);
 	}	return true;
 
 	case WM_CHANGES_SAVED:
@@ -506,6 +507,34 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 	}	break;
 
+	case WM_CLEAR_CLIPBOARD:
+	{
+		dialog->clearClipboard(hwnd);
+	}	return true;
+
+	case WM_CHECK_INACTIVE_TIME:
+	{
+		LASTINPUTINFO lastInputInfo = { sizeof(LASTINPUTINFO) };
+		if (GetLastInputInfo(&lastInputInfo))
+		{
+			// Don't use GetTickCount64() here, since there's no 64-bit
+			// GetLastInputInfo(), we rely on both counters to overflow.
+			if (dialog->programSettings().idleTimeout > 0 &&
+				dialog->programSettings().idleTimeout <
+				(static_cast<std::int64_t>(GetTickCount()) -
+					static_cast<std::int64_t>(lastInputInfo.dwTime)))
+			{
+				dialog->setTimeoutQuit(true);
+				PostMessageW(hwnd, WM_CLOSE, 0, 0);
+			}
+		}
+		else
+		{ // Always timeout if this fails
+			dialog->setTimeoutQuit(true);
+			PostMessageW(hwnd, WM_CLOSE, 0, 0);
+		}
+	}	return true;
+
 	case WM_TIMER:
 	{
 		switch (static_cast<TimerId>(wparam))
@@ -515,30 +544,12 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 		case TimerId::CLEAR_CLIPBOARD:
 		{
-			dialog->clearClipboard(hwnd);
+			PostMessageW(hwnd, WM_CLEAR_CLIPBOARD, 0, 0);
 		}	return true;
 
 		case TimerId::CHECK_INACTIVE_TIME:
 		{
-			LASTINPUTINFO lastInputInfo = { sizeof(LASTINPUTINFO) };
-			if (GetLastInputInfo(&lastInputInfo))
-			{
-				// Don't use GetTickCount64() here, since there's no 64-bit
-				// GetLastInputInfo(), we rely on both counters to overflow.
-				if (dialog->programSettings().idleTimeout > 0 &&
-					dialog->programSettings().idleTimeout < 
-					(static_cast<std::int64_t>(GetTickCount()) -
-						static_cast<std::int64_t>(lastInputInfo.dwTime)))
-				{
-					dialog->setTimeoutQuit(true);
-					PostMessageW(hwnd, WM_CLOSE, 0, 0);
-				}
-			}
-			else
-			{ // Always timeout if this fails
-				dialog->setTimeoutQuit(true);
-				PostMessageW(hwnd, WM_CLOSE, 0, 0);
-			}
+			PostMessageW(hwnd, WM_CHECK_INACTIVE_TIME, 0, 0);
 		}	return true;
 		}
 	}	break;
