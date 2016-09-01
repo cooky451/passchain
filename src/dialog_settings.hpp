@@ -143,11 +143,7 @@ inline AutostartSetting getAutostartSetting(HKEY hkey)
 		auto ret = RegQueryValueExW(hkey, L"passchain", 0, &type, 
 			reinterpret_cast<BYTE*>(&buffer[0]), &bufsize);
 
-		if (ret != ERROR_SUCCESS || type != REG_SZ)
-		{
-			showMessageBox("Warning", "Unable to query registry value.");
-		}
-		else
+		if (ret == ERROR_SUCCESS && type == REG_SZ)
 		{
 			auto words = parseWords(toUtf8(buffer));
 
