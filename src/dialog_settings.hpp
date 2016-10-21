@@ -28,11 +28,13 @@ struct ProgramSettings
 	std::uint32_t clipboardPasswordTimeout = 2000;
 	std::uint32_t autotyperTimeout = 2000;
 	std::uint32_t idleTimeout = 20 * 60 * 1000;
+	std::uint32_t selectionTimeout = 5 * 60 * 1000;
 
 	HotkeySettings clipboardHotkeySettings = { 'B', false, true, false };
 	HotkeySettings autotyperHotkeySettings = { 'Q', false, true, false };
 
 	bool showHiddenEntries = false;
+	bool alwaysOnTop = true;
 };
 
 inline int shortTimeoutToIndex(std::uint32_t timeout)

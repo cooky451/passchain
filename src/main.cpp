@@ -2,6 +2,8 @@
  * 
  */
 
+#pragma comment (lib, "Winmm.lib")
+
 #include "windows/utility.hpp"
 #include "utility/utility.hpp"
 #include "dialog_main.hpp"

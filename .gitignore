@@ -6,4 +6,9 @@
 *.idb
 *.res
 *.db
+*.log
+*.pdb
+*.obj
+*.user
+*.suo
 /bin/

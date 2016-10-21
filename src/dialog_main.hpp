@@ -51,15 +51,42 @@ void sendKeyInput(WORD scan, bool character, bool keyUp)
 	SendInput(1, &input, sizeof(INPUT));
 }
 
+void emulateReleaseHotkey(const ProgramSettings& settings)
+{
+	timeBeginPeriod(1);
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+	if (settings.autotyperHotkeySettings.alt)
+	{
+		sendKeyInput(VK_MENU, false, true);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	if (settings.autotyperHotkeySettings.control)
+	{
+		sendKeyInput(VK_CONTROL, false, true);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	if (settings.autotyperHotkeySettings.shift)
+	{
+		sendKeyInput(VK_SHIFT, false, true);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	sendKeyInput(settings.autotyperHotkeySettings.character, false, true);
+	std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+	timeEndPeriod(1);
+}
+
 void writeString(HWND, const std::string& str)
 {
-	sendKeyInput(VK_CONTROL, false, true);
-	std::this_thread::sleep_for(std::chrono::milliseconds(10));
-	sendKeyInput('B', false, true);
-	std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	timeBeginPeriod(1);
 
 	auto wstr = toWideString(str);
-
+	
 	for (const auto& c : wstr)
 	{
 		sendKeyInput(c, true, false);
@@ -68,7 +95,21 @@ void writeString(HWND, const std::string& str)
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
+	timeEndPeriod(1);
+
 	SecureZeroMemory(&wstr[0], wstr.size() * sizeof wstr[0]);
+}
+
+void setAlwaysOnTop(HWND hwnd, bool alwaysOnTop)
+{
+	if (alwaysOnTop)
+	{
+		SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	}
+	else
+	{
+		SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+	}
 }
 
 class MainDialog
@@ -85,12 +126,18 @@ class MainDialog
 
 	std::uint64_t _selection = INVALID_SELECTION;
 	ClipboardState _clipboardState = ClipboardState::CLEAN;
-	std::chrono::steady_clock::time_point _lastTypeTime = {};
+	std::chrono::steady_clock::time_point _lastAutoTyperTime = {};
+	std::chrono::steady_clock::time_point _lastSelectionTime = {};
 
 	ProgramSettings _settings;
 	std::string _configFile;
 
 public:
+	~MainDialog()
+	{
+		storeConfigFile();
+	}
+
 	MainDialog(MainDialogCreateParams* params, HWND hwnd)
 		: _database(params->database)
 		, _storeFilename(params->filename)
@@ -116,6 +163,7 @@ public:
 		node.loadOrStore("timeout.clipboard.password", _settings.clipboardPasswordTimeout);
 		node.loadOrStore("timeout.autotyper", _settings.autotyperTimeout);
 		node.loadOrStore("timeout.idle", _settings.idleTimeout);
+		node.loadOrStore("timeout.selection", _settings.selectionTimeout);
 		node.loadOrStore("hotkey.clipboard_char", charbuf0);
 		node.loadOrStore("hotkey.clipboard_ctrl", _settings.clipboardHotkeySettings.control);
 		node.loadOrStore("hotkey.clipboard_shift", _settings.clipboardHotkeySettings.shift);
@@ -125,6 +173,9 @@ public:
 		node.loadOrStore("hotkey.autotyper_shift", _settings.autotyperHotkeySettings.shift);
 		node.loadOrStore("hotkey.autotyper_alt", _settings.autotyperHotkeySettings.alt);
 		node.loadOrStore("show_hidden_entries", _settings.showHiddenEntries);
+		node.loadOrStore("always_on_top", _settings.alwaysOnTop);
+
+		setAlwaysOnTop(hwnd, _settings.alwaysOnTop);
 
 		if (charbuf0.size() > 1)
 		{
@@ -174,7 +225,7 @@ public:
 
 	void remakeNotifyIcon(HWND hwnd)
 	{
-		_notifyIcon = nullptr; // We need to delete it first.
+		_notifyIcon = nullptr; // We need to delete it *before* creating the new one.
 		_notifyIcon = std::make_unique<NotifyIcon>(hwnd, WM_TRAYNOTIFY, MAKEINTRESOURCEW(ICON_DEFAULT));
 	}
 
@@ -210,6 +261,7 @@ public:
 		node.storeValue("timeout.clipboard.password", _settings.clipboardPasswordTimeout);
 		node.storeValue("timeout.autotyper", _settings.autotyperTimeout);
 		node.storeValue("timeout.idle", _settings.idleTimeout);
+		node.storeValue("timeout.selection", _settings.selectionTimeout);
 		node.storeValue("hotkey.clipboard_char", charbuf0);
 		node.storeValue("hotkey.clipboard_ctrl", _settings.clipboardHotkeySettings.control);
 		node.storeValue("hotkey.clipboard_shift", _settings.clipboardHotkeySettings.shift);
@@ -219,6 +271,7 @@ public:
 		node.storeValue("hotkey.autotyper_shift", _settings.autotyperHotkeySettings.shift);
 		node.storeValue("hotkey.autotyper_alt", _settings.autotyperHotkeySettings.alt);
 		node.storeValue("show_hidden_entries", _settings.showHiddenEntries);
+		node.storeValue("always_on_top", _settings.alwaysOnTop);
 	}
 
 	void updateSelection(int index)
@@ -228,6 +281,19 @@ public:
 		if (data)
 		{
 			_selection = data->uniqueId;
+			_lastSelectionTime = std::chrono::steady_clock::now();
+		}
+	}
+
+	void clearSelectionOnTimeout()
+	{
+		if (_settings.selectionTimeout > 0)
+		{
+			if (std::chrono::steady_clock::now() - _lastSelectionTime >=
+				std::chrono::milliseconds(_settings.selectionTimeout))
+			{
+				_selection = 0;
+			}
 		}
 	}
 
@@ -273,24 +339,22 @@ public:
 
 		if (data != nullptr)
 		{
+			emulateReleaseHotkey(_settings);
+
 			auto guard = database().transformGuard(*data);
 
-			if (_lastTypeTime.time_since_epoch().count() != 0 &&
+			if (_lastAutoTyperTime.time_since_epoch().count() != 0 &&
 				std::chrono::duration_cast<std::chrono::milliseconds>
-				(std::chrono::steady_clock::now() - _lastTypeTime).count() < _settings.autotyperTimeout)
+				(std::chrono::steady_clock::now() - _lastAutoTyperTime).count() < _settings.autotyperTimeout)
 			{
 				writeString(GetForegroundWindow(), data->snapshots.back().password);
-				_lastTypeTime = {};
+				_lastAutoTyperTime = {};
 			}
 			else
 			{
 				writeString(GetForegroundWindow(), data->snapshots.back().username);
-				_lastTypeTime = std::chrono::steady_clock::now();
+				_lastAutoTyperTime = std::chrono::steady_clock::now();
 			}
-		}
-		else
-		{
-			showMessageBox("Warning", "Unable to find selected database entry.");
 		}
 	}
 
@@ -514,6 +578,8 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 	case WM_CHECK_INACTIVE_TIME:
 	{
+		dialog->clearSelectionOnTimeout();
+
 		LASTINPUTINFO lastInputInfo = { sizeof(LASTINPUTINFO) };
 		if (GetLastInputInfo(&lastInputInfo))
 		{
@@ -617,6 +683,7 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 		case WM_LBUTTONDBLCLK:
 		{
 			ShowWindow(hwnd, SW_SHOW);
+			SetForegroundWindow(hwnd);
 		}	return true;
 		}
 	}	break;
@@ -650,6 +717,12 @@ INT_PTR CALLBACK dialogProcMain(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 		{
 			CreateDialogParamW(nullptr, MAKEINTRESOURCEW(DIALOG_SETTINGS), hwnd,
 				dialogProcSettings, reinterpret_cast<LPARAM>(&dialog->programSettings()));
+		}	return true;
+
+		case MENU_MAINDIALOG_TOOLS_ALWAYS_ON_TOP:
+		{
+			dialog->programSettings().alwaysOnTop = !dialog->programSettings().alwaysOnTop;
+			setAlwaysOnTop(hwnd, dialog->programSettings().alwaysOnTop);
 		}	return true;
 
 		case MENU_MAINDIALOG_TOOLS_SHOW_HIDDEN_ENTRIES:
