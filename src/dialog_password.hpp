@@ -169,6 +169,7 @@ INT_PTR CALLBACK dialogProcPassword(HWND hwnd, UINT message, WPARAM wparam, LPAR
 				}
 
 				ShowWindow(hwnd, SW_SHOW);
+				SetForegroundWindow(hwnd);
 			}	return true;
 			}
 		}
